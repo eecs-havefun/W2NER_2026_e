@@ -1,1 +1,8 @@
 .idea/
+# PyTorch
+*.pt
+*.bin
+*.pth
+checkpoint/
+outputs/
+log/
