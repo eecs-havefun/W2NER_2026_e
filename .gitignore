@@ -6,3 +6,7 @@
 checkpoint/
 outputs/
 log/
+# Ignore all data by default
+data/
+# But allow specific directories
+!data/data_w2ner_folded_with_dev/
