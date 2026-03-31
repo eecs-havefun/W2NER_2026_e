@@ -1,3 +1,9 @@
+from pathlib import Path
+
+# Import path configuration
+script_dir = Path(__file__).parent
+project_root = script_dir.parent.parent
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -44,9 +50,9 @@ DATASETS = [
     ("train_orders", "data_w2ner_folded_with_dev/train_orders_with_queries"),
 ]
 
-CONFIG_DIR = "/home/mengfanrong/finaldesign/W2NERproject/W2NER/config"
-W2NER_DIR = "/home/mengfanrong/finaldesign/W2NERproject/W2NER"
-W2NER_DATA_DIR = "/home/mengfanrong/finaldesign/W2NERproject/W2NER/data"
+CONFIG_DIR = str(project_root / "W2NER" / "config")
+W2NER_DIR = str(project_root / "W2NER")
+W2NER_DATA_DIR = str(project_root / "W2NER" / "data")
 
 def main():
     os.makedirs(CONFIG_DIR, exist_ok=True)

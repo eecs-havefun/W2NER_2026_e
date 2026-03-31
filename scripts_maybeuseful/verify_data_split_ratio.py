@@ -1,3 +1,8 @@
+
+# Import path configuration
+script_dir = Path(__file__).parent
+project_root = script_dir.parent.parent
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -7,7 +12,7 @@
 import json
 from pathlib import Path
 
-DATA_ROOT = Path("/home/mengfanrong/finaldesign/W2NERproject/W2NER/data/data_w2ner_folded_with_dev")
+DATA_ROOT = project_root / "W2NER" / "data" / "data_w2ner_folded_with_dev"
 
 DATASETS = [
     "flight_orders_with_queries",

@@ -1,3 +1,8 @@
+
+# Import path configuration
+script_dir = Path(__file__).parent
+project_root = script_dir.parent.parent
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -17,8 +22,8 @@ from pathlib import Path
 from collections import defaultdict
 from typing import Dict, List, Any, Set, Tuple
 
-SIDECAR_PATH = Path("/home/mengfanrong/finaldesign/W2NERproject/procnet/sidecar_entities/test_typed_entities.jsonl")
-PROCNET_RAW_PATH = Path("/home/mengfanrong/finaldesign/W2NERproject/procnet/procnet_format/mixed_data_with_queries/test.json")
+SIDECAR_PATH = project_root / "procnet" / "sidecar_entities" / "test_typed_entities.jsonl"
+PROCNET_RAW_PATH = project_root / "procnet" / "procnet_format" / "mixed_data_with_queries" / "test.json"
 
 # 必填字段
 REQUIRED_FIELDS = ["doc_id", "sent_id", "b", "e", "text", "type_name"]

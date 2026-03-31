@@ -1,3 +1,8 @@
+
+# Import path configuration
+script_dir = Path(__file__).parent
+project_root = script_dir.parent.parent
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -103,13 +108,13 @@ def main():
                         help="数据集名称，如 mixed_data_with_queries")
     parser.add_argument("--device", type=int, default=0)
     parser.add_argument("--output_dir", type=str, 
-                        default="/home/mengfanrong/finaldesign/W2NERproject/W2NER/predictions",
+                        default=str(project_root / "W2NER" / "predictions"),
                         help="预测输出目录")
     parser.add_argument("--model_path", type=str, 
-                        default="/home/mengfanrong/finaldesign/W2NERproject/W2NER/model.pt",
+                        default=str(project_root / "W2NER" / "model.pt"),
                         help="训练好的模型路径")
     parser.add_argument("--config_path", type=str,
-                        default="/home/mengfanrong/finaldesign/W2NERproject/W2NER/config/data_w2ner_folded.json",
+                        default=str(project_root / "W2NER" / "config" / "data_w2ner_folded.json"),
                         help="配置文件路径")
     
     args = parser.parse_args()
@@ -140,7 +145,7 @@ def main():
         print(f"\n处理 {split} 集...")
         
         # 加载数据
-        data_path = Path("/home/mengfanrong/finaldesign/W2NERproject/data_w2ner_folded") / args.dataset / f"{split}.json"
+        data_path = project_root / "data_w2ner_folded" / args.dataset / f"{split}.json"
         if not data_path.exists():
             print(f"  ⚠️  数据文件不存在：{data_path}")
             continue

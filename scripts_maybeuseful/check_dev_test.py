@@ -1,3 +1,8 @@
+
+# Import path configuration
+script_dir = Path(__file__).parent
+project_root = script_dir.parent.parent
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -11,7 +16,7 @@ def md5_file(path):
     with open(path, 'rb') as f:
         return hashlib.md5(f.read()).hexdigest()
 
-W2NER_DATA_ROOT = Path("/home/mengfanrong/finaldesign/W2NERproject/W2NER/data")
+W2NER_DATA_ROOT = project_root / "W2NER" / "data"
 
 print("=== 检查 W2NER/data 下各子目录的 dev/test ===")
 for subdir in sorted(W2NER_DATA_ROOT.iterdir()):

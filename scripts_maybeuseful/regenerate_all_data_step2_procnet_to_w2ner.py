@@ -1,3 +1,8 @@
+
+# Import path configuration
+script_dir = Path(__file__).parent
+project_root = script_dir.parent.parent
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -17,8 +22,8 @@ from collections import defaultdict
 from typing import Dict, List, Any
 
 # 配置
-PROCNET_INPUT_ROOT = Path("/home/mengfanrong/finaldesign/W2NERproject/procnet/procnet_format")
-W2NER_OUTPUT_ROOT = Path("/home/mengfanrong/finaldesign/W2NERproject/W2NER/data/data_w2ner_folded_with_dev")
+PROCNET_INPUT_ROOT = project_root / "procnet" / "procnet_format"
+W2NER_OUTPUT_ROOT = project_root / "W2NER" / "data" / "data_w2ner_folded_with_dev"
 
 DATASETS = [
     "flight_orders_with_queries",

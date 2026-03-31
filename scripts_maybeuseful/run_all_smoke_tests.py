@@ -1,3 +1,8 @@
+
+# Import path configuration
+script_dir = Path(__file__).parent
+project_root = script_dir.parent.parent
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -8,7 +13,7 @@ import subprocess
 import json
 from pathlib import Path
 
-W2NER_DIR = Path("/home/mengfanrong/finaldesign/W2NERproject/W2NER")
+W2NER_DIR = Path(str(project_root / "W2NER"))
 CONFIG_PATH = W2NER_DIR / "config" / "data_w2ner_folded.json"
 
 DATASETS = [

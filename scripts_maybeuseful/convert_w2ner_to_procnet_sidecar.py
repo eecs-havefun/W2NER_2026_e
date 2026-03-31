@@ -1,3 +1,8 @@
+
+# Import path configuration
+script_dir = Path(__file__).parent
+project_root = script_dir.parent.parent
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -20,8 +25,8 @@ from pathlib import Path
 from typing import Dict, List, Any
 
 # 配置
-W2NER_OUTPUT_PATH = Path("/home/mengfanrong/finaldesign/W2NERproject/W2NER/output.json")
-PROCNET_SIDECAR_OUTPUT = Path("/home/mengfanrong/finaldesign/W2NERproject/procnet/sidecar_entities")
+W2NER_OUTPUT_PATH = project_root / "W2NER" / "output.json"
+PROCNET_SIDECAR_OUTPUT = project_root / "procnet" / "sidecar_entities"
 
 # 标签映射（W2NER 输出类型 → ProcNet 标准类型）
 # W2NER 输出是小写，ProcNet 使用驼峰命名
