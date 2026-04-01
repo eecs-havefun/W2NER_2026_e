@@ -2,6 +2,8 @@ import logging
 import pickle
 import time
 from collections import defaultdict, deque
+from typing import List, Tuple, Dict, Set, Any, Optional, Union
+import numpy as np
 
 
 def get_logger(dataset):
@@ -50,40 +52,114 @@ def convert_text_to_index(text):
     return index, int(type_id)
 
 
-def decode(outputs, entities, length):
-    class Node:
-        def __init__(self):
+# ==================== 通用图构建函数 ====================
+
+class RelationNode:
+    """通用的关系图节点，支持带分数和不带分数两种模式"""
+    def __init__(self, with_scores: bool = False):
+        self.with_scores = with_scores
+        if with_scores:
+            self.THW = []  # [(tail, type_id, thw_score)]
+            self.NNW = defaultdict(dict)  # {(head, tail): {next_index: edge_score}}
+        else:
             self.THW = []  # [(tail, type_id)]
             self.NNW = defaultdict(set)  # {(head, tail): {next_index}}
 
-    ent_r, ent_p, ent_c = 0, 0, 0
-    decode_entities = []
-    q = deque()
 
-    for instance, ent_set, l in zip(outputs, entities, length):
-        predicts = []
-        nodes = [Node() for _ in range(l)]
-
+def build_relation_graph(outputs, scores=None, length=None):
+    """
+    构建关系图，支持带分数和不带分数两种模式
+    
+    Args:
+        outputs: 模型输出 [batch, seq_len, seq_len]
+        scores: 概率分数 [batch, seq_len, seq_len, num_classes] 或 None
+        length: 序列长度列表 [batch]
+    
+    Returns:
+        nodes_list: 每个样本的节点列表
+        with_scores: 是否包含分数
+    """
+    if length is None:
+        # 如果没有提供length，假设 outputs 是单个样本
+        if outputs.ndim == 2:
+            outputs = [outputs]
+            if scores is not None:
+                scores = [scores]
+            length = [outputs[0].shape[0]]
+        else:
+            raise ValueError("必须提供 length 参数")
+    
+    with_scores = scores is not None
+    nodes_list = []
+    
+    for idx in range(len(outputs)):
+        instance = outputs[idx]
+        prob_instance = scores[idx] if with_scores else None
+        # 处理各种类型的length参数
+        if isinstance(length, (list, tuple, np.ndarray)) and hasattr(length, '__len__'):
+            l = int(length[idx])  # 确保转换为整数
+        else:
+            l = int(length)  # 标量情况
+        
+        nodes = [RelationNode(with_scores) for _ in range(l)]
+        
         for cur in reversed(range(l)):
             heads = []
             for pre in range(cur + 1):
-                # THW
+                # THW 关系: [tail, head] -> type_id
                 if instance[cur, pre] > 1:
-                    nodes[pre].THW.append((cur, instance[cur, pre]))
+                    type_id = int(instance[cur, pre])
+                    if with_scores:
+                        thw_score = float(prob_instance[cur, pre, type_id])
+                        nodes[pre].THW.append((cur, type_id, thw_score))
+                    else:
+                        nodes[pre].THW.append((cur, type_id))
                     heads.append(pre)
-
-                # NNW
+                
+                # NNW 关系: [pre, cur] == 1
                 if pre < cur and instance[pre, cur] == 1:
-                    # cur node
-                    for head in heads:
-                        nodes[pre].NNW[(head, cur)].add(cur)
-                    # post nodes
-                    for head, tail in nodes[cur].NNW.keys():
-                        if tail >= cur and head <= pre:
-                            nodes[pre].NNW[(head, tail)].add(cur)
+                    if with_scores:
+                        nnw_score = float(prob_instance[pre, cur, 1])
+                        
+                        # 当前 pre 直接连接到 cur
+                        for head in heads:
+                            old_score = nodes[pre].NNW[(head, cur)].get(cur, -1.0)
+                            if nnw_score > old_score:
+                                nodes[pre].NNW[(head, cur)][cur] = nnw_score
+                        
+                        # 从 cur 继承可达路径
+                        for head, tail in nodes[cur].NNW.keys():
+                            if tail >= cur and head <= pre:
+                                old_score = nodes[pre].NNW[(head, tail)].get(cur, -1.0)
+                                if nnw_score > old_score:
+                                    nodes[pre].NNW[(head, tail)][cur] = nnw_score
+                    else:
+                        # 不带分数的版本
+                        for head in heads:
+                            nodes[pre].NNW[(head, cur)].add(cur)
+                        
+                        for head, tail in nodes[cur].NNW.keys():
+                            if tail >= cur and head <= pre:
+                                nodes[pre].NNW[(head, tail)].add(cur)
+            
+        nodes_list.append(nodes)
+    
+    return nodes_list, with_scores
 
-            # entity
-            for tail, type_id in nodes[cur].THW:
+
+def decode_from_graph_fixed(nodes_list, with_scores=False):
+    """
+    从关系图解码实体（不带分数的版本）
+    与官方 W2NER decode() 逻辑一致：每一步从链尾节点查找 NNW 边。
+    """
+    decode_entities = []
+
+    for nodes in nodes_list:
+        predicts = []
+        q = deque()
+
+        for cur, node in enumerate(nodes):
+            for tail, type_id in node.THW:
                 if cur == tail:
                     predicts.append(([cur], type_id))
                     continue
@@ -93,6 +169,8 @@ def decode(outputs, entities, length):
                 while len(q) > 0:
                     chains = q.pop()
                     for idx in nodes[chains[-1]].NNW[(cur, tail)]:
+                        if idx in chains:
+                            continue
                         if idx == tail:
                             predicts.append((chains + [idx], type_id))
                         else:
@@ -101,10 +179,109 @@ def decode(outputs, entities, length):
         predicts = set([convert_index_to_text(x[0], x[1]) for x in predicts])
         decode_entities.append([convert_text_to_index(x) for x in predicts])
 
-        ent_r += len(ent_set)
-        ent_p += len(predicts)
-        ent_c += len(predicts.intersection(ent_set))
+    return decode_entities
 
+
+def decode_from_graph(nodes_list, with_scores=False):
+    """
+    从关系图解码实体（不带分数的版本）
+    与 decode_from_graph_fixed 等价，保留别名以兼容旧调用。
+    """
+    return decode_from_graph_fixed(nodes_list, with_scores)
+
+
+def decode_for_procnet_from_graph(nodes_list):
+    """
+    从关系图解码实体（带分数的版本，用于ProcNet）
+    与官方 W2NER decode() 逻辑一致：每一步从链尾节点查找 NNW 边，含环路检测。
+    
+    Returns:
+        decode_entities: 每个样本的解码实体列表 [dict, ...]
+    """
+    decode_entities = []
+
+    for nodes in nodes_list:
+        predicts = {}
+        q = deque()
+
+        for cur, node in enumerate(nodes):
+            for tail, type_id, thw_score in node.THW:
+                if cur == tail:
+                    key = convert_index_to_text([cur], type_id)
+                    old = predicts.get(key)
+                    if old is None or thw_score > old["score"]:
+                        predicts[key] = {
+                            "token_indices": [cur],
+                            "type_id": int(type_id),
+                            "score": thw_score,
+                            "head": cur,
+                        }
+                    continue
+
+                q.clear()
+                q.append(([cur], [thw_score]))
+
+                while len(q) > 0:
+                    chains, score_trace = q.pop()
+                    for idx, edge_score in nodes[chains[-1]].NNW[(cur, tail)].items():
+                        if idx in chains:
+                            continue
+                        new_chain = chains + [idx]
+                        new_scores = score_trace + [edge_score]
+
+                        if idx == tail:
+                            key = convert_index_to_text(new_chain, type_id)
+                            final_score = _mean(new_scores)
+                            old = predicts.get(key)
+                            if old is None or final_score > old["score"]:
+                                predicts[key] = {
+                                    "token_indices": list(new_chain),
+                                    "type_id": int(type_id),
+                                    "score": final_score,
+                                    "head": int(new_chain[0]),
+                                }
+                        else:
+                            q.append((new_chain, new_scores))
+
+        decode_entities.append(list(predicts.values()))
+
+    return decode_entities
+
+
+# ==================== 原函数（保持接口兼容） ====================
+
+def decode(outputs, entities, length):
+    """
+    解码实体并计算评估指标（保持原接口）
+    
+    Args:
+        outputs: 模型输出 [batch, seq_len, seq_len]
+        entities: 每个样本的实体集合
+        length: 序列长度列表 [batch]
+    
+    Returns:
+        ent_c: 正确实体数
+        ent_p: 预测实体数
+        ent_r: 真实实体数
+        decode_entities: 解码的实体列表
+    """
+    # 使用通用图构建函数（不带分数）
+    nodes_list, _ = build_relation_graph(outputs, scores=None, length=length)
+    
+    # 解码实体
+    decode_entities = decode_from_graph_fixed(nodes_list, with_scores=False)
+    
+    # 计算评估指标
+    ent_r, ent_p, ent_c = 0, 0, 0
+    for ent_set, predicts in zip(entities, decode_entities):
+        # 将解码实体转换为文本表示以便比较
+        predict_texts = set(convert_index_to_text(idx, type_id) for idx, type_id in predicts)
+        ent_set_texts = set(ent_set)  # entities已经是文本表示
+        
+        ent_r += len(ent_set_texts)
+        ent_p += len(predict_texts)
+        ent_c += len(predict_texts.intersection(ent_set_texts))
+    
     return ent_c, ent_p, ent_r, decode_entities
 
 
@@ -142,93 +319,22 @@ def _safe_meta_get(record, keys, default=None):
 
 def decode_for_procnet(outputs, scores, length):
     """
-    在原 decode 的基础上，额外导出 ProcNet 更需要的结构：
-    - token_indices
-    - type_id
-    - score: 基于 THW + NNW 边的平均置信度
-    - head: 默认取 token_indices[0]
-
-    注意：
-    1. 这里不依赖 gold entities，因此适合直接用于 test/predict 导出。
-    2. 对不连续实体也会保留 token_indices；Phase 1 可在上层用 continuous_only 过滤。
+    在原 decode 的基础上，额外导出 ProcNet 更需要的结构（使用通用图构建函数）
+    
+    Args:
+        outputs: 模型输出 [batch, seq_len, seq_len]
+        scores: 概率分数 [batch, seq_len, seq_len, num_classes]
+        length: 序列长度列表 [batch]
+    
+    Returns:
+        decode_entities: 每个样本的解码实体列表 [dict, ...]
     """
-    class Node:
-        def __init__(self):
-            self.THW = []  # [(tail, type_id, thw_score)]
-            self.NNW = defaultdict(dict)  # {(head, tail): {next_index: edge_score}}
-
-    decode_entities = []
-    q = deque()
-
-    for instance, prob_instance, l in zip(outputs, scores, length):
-        predicts = {}
-        nodes = [Node() for _ in range(l)]
-
-        for cur in reversed(range(l)):
-            heads = []
-            for pre in range(cur + 1):
-                # THW: [tail, head] -> type_id
-                if instance[cur, pre] > 1:
-                    type_id = int(instance[cur, pre])
-                    thw_score = float(prob_instance[cur, pre, type_id])
-                    nodes[pre].THW.append((cur, type_id, thw_score))
-                    heads.append(pre)
-
-                # NNW: [pre, cur] == 1
-                if pre < cur and instance[pre, cur] == 1:
-                    nnw_score = float(prob_instance[pre, cur, 1])
-
-                    # 当前 pre 直接连接到 cur
-                    for head in heads:
-                        old_score = nodes[pre].NNW[(head, cur)].get(cur, -1.0)
-                        if nnw_score > old_score:
-                            nodes[pre].NNW[(head, cur)][cur] = nnw_score
-
-                    # 从 cur 继承“以 cur 作为下一跳”的可达路径
-                    for head, tail in nodes[cur].NNW.keys():
-                        if tail >= cur and head <= pre:
-                            old_score = nodes[pre].NNW[(head, tail)].get(cur, -1.0)
-                            if nnw_score > old_score:
-                                nodes[pre].NNW[(head, tail)][cur] = nnw_score
-
-            for tail, type_id, thw_score in nodes[cur].THW:
-                if cur == tail:
-                    key = convert_index_to_text([cur], type_id)
-                    predicts[key] = {
-                        "token_indices": [cur],
-                        "type_id": int(type_id),
-                        "score": thw_score,
-                        "head": cur,
-                    }
-                    continue
-
-                q.clear()
-                q.append(([cur], [thw_score]))
-
-                while len(q) > 0:
-                    chains, score_trace = q.pop()
-                    next_nodes = nodes[chains[-1]].NNW[(cur, tail)]
-
-                    for idx, edge_score in next_nodes.items():
-                        new_chain = chains + [idx]
-                        new_scores = score_trace + [edge_score]
-
-                        if idx == tail:
-                            key = convert_index_to_text(new_chain, type_id)
-                            final_score = _mean(new_scores)
-                            old = predicts.get(key)
-                            if old is None or final_score > old["score"]:
-                                predicts[key] = {
-                                    "token_indices": list(new_chain),
-                                    "type_id": int(type_id),
-                                    "score": final_score,
-                                    "head": int(new_chain[0]),
-                                }
-                        else:
-                            q.append((new_chain, new_scores))
-
-        decode_entities.append(list(predicts.values()))
-
+    # 使用通用图构建函数（带分数）
+    nodes_list, _ = build_relation_graph(outputs, scores=scores, length=length)
+    
+    # 解码实体（带分数版本）
+    decode_entities = decode_for_procnet_from_graph(nodes_list)
+    
     return decode_entities
 
 
