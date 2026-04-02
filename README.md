@@ -47,7 +47,7 @@
 ## 数据链路
 
 ```
-data_v1b/ (RASA NLU 原始格式, 4,800 篇文档)
+data_v1b_raw_rasa/ (RASA NLU 原始格式, 4,800 篇文档)
   │
   ▼ [脚本 1] convert_data_v1b_to_procnet.py  [ProcNet 仓库 scripts/]
   │   句子分割 → 实体位置映射 → 复合 key → 事件构建 → 70/15/15 划分
@@ -419,6 +419,7 @@ W2NER/
 │   ├── data_w2ner_folded_with_dev/   # git 跟踪的数据
 │   ├── mixed_data_with_queries/      # 当前活跃数据集
 │   └── ...
+├── data_v1b_raw_rasa/        # RASA NLU 原始数据（5 个领域，4,800 篇）
 ├── predictions/            # 预测输出（按 split）
 ├── scripts_maybeuseful/    # 数据转换、验证、冒烟测试脚本
 ├── conversation_history/   # 设计决策记录
@@ -431,6 +432,52 @@ W2NER/
 
 ---
 
+## 实验结果
+
+### W2NER → ProcNet 级联实验（`w2ner_sidecar_exp1`）
+
+使用 W2NER 预测的 sidecar 实体作为 ProcNet 输入，在 4 个领域数据集上联合训练。
+
+| Epoch | DEV BIO Exact F1 | DEV Event Micro F1 | TEST BIO Exact F1 | TEST Event Micro F1 |
+|-------|-----------------|-------------------|------------------|--------------------|
+| 1     | 95.15%          | 97.14%            | 95.42%           | 97.08%             |
+| 2     | 95.26%          | 97.23%            | 95.54%           | 97.26%             |
+| 3     | 95.26%          | 97.23%            | 95.54%           | 97.26%             |
+
+**各子任务 TEST Event Micro F1（Epoch 3）**：
+
+| 数据集   | F1     |
+|----------|--------|
+| flight   | 99.10% |
+| id_card  | 98.82% |
+| train    | 95.88% |
+| hotel    | 95.31% |
+
+> 指标在第 2-3 epoch 趋于稳定。`multi_event` 指标全为 0，原因是 fragment-level 切分后每个样本最多含 1 个事件，该桶为空。
+
+### 同 Span 多角色问题
+
+原始数据 `data_v1b/` 中存在大量同文本多角色标注（如 `"12月19日"` 同时标注为 `startDate` 和 `endDate`），train split 共 **1,124 处**。
+
+**当前评估链路中的丢失点**：
+
+```
+data_v1b (✅ 保留)
+  → convert_data_v1b_to_procnet.py (✅ event_dict 保留，不同 key 可同 value)
+  → DocEE_processor.parse_json_one (✅ 保留)
+  → DocEE_preparer → event_label (❌ 丢失！)
+```
+
+在 `DocEE_preparer.py:426-436` 中，`event_label` 以 `tuple(token_ids)` 为 key、role index 为 value。Python dict 的 key 唯一性导致**同一个 span 只能保留最后一个 role**，其余被覆盖。这意味着：
+
+- Gold label 中同 span 多角色信息被人为压缩为单角色
+- 被覆盖的角色必然被记为 FN，**人为压低了** F1 而非抬高
+- 模型架构（`DocEE_proxy_node_model.py`）和评估逻辑（`DocEE_metric.py:137-145`）也强制一个 span 只对应一个 role
+
+**影响范围**：约 969/3,360 个训练文档包含同 span 多类型实体。
+
+---
+
 ## 已知问题
 
 | 问题 | 状态 | 说明 |
@@ -439,7 +486,9 @@ W2NER/
 | 随机种子未生效 | ⚠️ 待修复 | `main.py` 中随机种子代码被注释，需取消注释 |
 | `run_all_smoke_tests.py` 导入顺序 | ⚠️ 已知 | `Path` 在 shebang 之前使用 |
 | `Vocabulary.__len__` | ✅ 已修复 | 官方返回 `len(self.token2id)`（不存在），本 fork 修复为 `len(self.label2id)` |
-| W2NER 全量预测 | ⚠️ 进行中 | 当前 `predict_final` 仅跑 test 集，需扩展到全量 4,800 篇 |
+| 同 span 多角色在 gold label 中丢失 | ❌ 未修复 | `DocEE_preparer.py` 用 span tuple 作 dict key 导致覆盖 |
+| 模型无法输出同 span 多角色 | ❌ 未修复 | 架构和评估逻辑均强制一 span 一 role |
+| `multi_event` 指标无意义 | ℹ️ 设计限制 | fragment 切分后每样本最多 1 个事件 |
 
 ---
 
