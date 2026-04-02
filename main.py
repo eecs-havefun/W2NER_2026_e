@@ -304,4 +304,15 @@ if __name__ == '__main__':
     peak_mb = torch.cuda.max_memory_allocated() / 1024 / 1024
     logger.info("Peak GPU Memory: {:.1f} MB".format(peak_mb))
     trainer.load(config.save_path)
-    trainer.predict("Final", test_loader, ori_data[-1])
+
+    import os
+    pred_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "predictions")
+    os.makedirs(pred_dir, exist_ok=True)
+
+    for split_name, loader, data in [
+        ("train", train_loader, ori_data[0]),
+        ("dev",   dev_loader,   ori_data[1]),
+        ("test",  test_loader,  ori_data[2]),
+    ]:
+        config.predict_path = os.path.join(pred_dir, f"{split_name}.json")
+        trainer.predict(split_name, loader, data)
